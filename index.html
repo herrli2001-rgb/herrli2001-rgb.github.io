@@ -198,6 +198,16 @@
   .card .arrow{transition:transform .5s var(--ease-out)}
   .card:hover .arrow{transform:translate(4px,-4px)}
 
+  /* 下载 */
+  .dl{
+    display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;
+    padding:28px;border:1px solid var(--line);border-radius:16px;background:var(--paper-2);
+    transition:border-color .5s,box-shadow .5s;
+  }
+  .dl:hover{border-color:rgba(20,20,19,.24);box-shadow:0 24px 60px -45px rgba(20,20,19,.6)}
+  .dl h3{margin:0 0 6px;font-size:clamp(1.1rem,1.8vw,1.4rem);font-weight:700;letter-spacing:-.02em}
+  .dl p{margin:0;font-size:13.5px;color:var(--muted)}
+  .dl .meta{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
   /* 数字 */
   .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(16px,3vw,40px)}
   .stat{border-top:1px solid var(--line);padding-top:18px}
@@ -328,8 +338,8 @@
   <!-- 跑马灯 -->
   <div class="marquee" aria-hidden="true">
     <div class="track">
-      <span>Design</span><span>Code</span><span>Writing</span><span>Shanghai</span><span>XP Studio</span>
-      <span>Design</span><span>Code</span><span>Writing</span><span>Shanghai</span><span>XP Studio</span>
+      <span>Design</span><span>Code</span><span>Writing</span><span>Beijing</span><span>XP Studio</span>
+      <span>Design</span><span>Code</span><span>Writing</span><span>Beijing</span><span>XP Studio</span>
     </div>
   </div>
 
@@ -376,6 +386,26 @@
     </div>
   </section>
 
+  <!-- 下载 -->
+  <section id="download">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="sec-label"><b>03</b> 下载</p>
+        <p class="sec-note">Windows x64 · 免费</p>
+      </div>
+      <div class="dl reveal">
+        <div>
+          <h3>DeepSeek Harness</h3>
+          <p>桌面客户端安装包，双击安装，无需配置。</p>
+          <div class="meta"><span>v0.1.6-alpha.2</span><span>Windows x64</span><span>约 290 MB</span></div>
+        </div>
+        <a class="pill" href="https://github.com/herrli2001-rgb/herrli2001-rgb.github.io/releases/download/v0.1.6-alpha.2/DeepSeek-Harness-0.1.6-alpha.2-Windows-x64.exe" data-mag>
+          下载安装包
+          <svg viewBox="0 0 24 24"><path d="M12 4v12M6 12l6 6 6-6"/></svg>
+        </a>
+      </div>
+    </div>
+  </section>
   <!-- 数字 -->
   <section style="border-top:0;padding-top:0">
     <div class="wrap">
@@ -399,16 +429,16 @@
   <section class="contact" id="contact">
     <div class="wrap">
       <div class="sec-head">
-        <p class="sec-label"><b>03</b> 联系</p>
+        <p class="sec-label"><b>04</b> 联系</p>
         <p class="sec-note">通常两天内回信</p>
       </div>
       <h2 class="reveal">聊聊？</h2>
-      <a class="mail reveal" href="mailto:hello@example.com" style="--d:.06s" data-mag>hello@example.com</a>
+      <a class="mail reveal" href="mailto:herrli2001@163.com" style="--d:.06s" data-mag>herrli2001@163.com</a>
       <div class="links reveal" style="--d:.12s">
-        <a href="https://github.com/CHANGE-ME" data-mag>
+        <a href="https://github.com/herrli2001-rgb" data-mag>
           <svg viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8"/></svg>GitHub
         </a>
-        <a href="mailto:hello@example.com" data-mag>
+        <a href="mailto:herrli2001@163.com" data-mag>
           <svg viewBox="0 0 24 24"><path d="M3 6h18v12H3zM3 6l9 7 9-7"/></svg>邮件
         </a>
       </div>
@@ -434,8 +464,8 @@
           <div>
             <h4>别处</h4>
             <ul>
-              <li><a href="https://github.com/CHANGE-ME">GitHub</a></li>
-              <li><a href="mailto:hello@example.com">邮箱</a></li>
+              <li><a href="https://github.com/herrli2001-rgb">GitHub</a></li>
+              <li><a href="mailto:herrli2001@163.com">邮箱</a></li>
             </ul>
           </div>
         </div>
