@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>星系 · 李小朋</title>
+<meta name="description" content="Three.js 星系：滚动穿过星云，镜头切换视角。">
+<meta name="theme-color" content="#05040a">
+<link rel="icon" href="assets/logo-mark.png">
+<style>
+  :root{
+    --ink:#f6f3ff;
+    --muted:#9b93b8;
+    --acid:#ccff00;
+    --violet:#8b6bff;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --mono:ui-monospace,"SF Mono","Cascadia Code",Consolas,monospace;
+    --ease:cubic-bezier(.16,1,.3,1);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#05040a;color:var(--ink)}
+  body{font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  a{color:inherit;text-decoration:none}
+
+  #scene{position:fixed;inset:0;width:100%;height:100%;display:block;z-index:0}
+
+  .vignette{
+    position:fixed;inset:0;z-index:1;pointer-events:none;
+    background:
+      linear-gradient(100deg,rgba(5,4,10,.82) 0%,rgba(5,4,10,.35) 34%,transparent 58%),
+      radial-gradient(120% 90% at 50% 45%,transparent 35%,rgba(5,4,10,.55) 78%,#05040a 100%);
+  }
+  .grain{
+    position:fixed;inset:0;z-index:2;pointer-events:none;opacity:.06;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .hud{
+    position:fixed;top:0;left:0;right:0;z-index:20;
+    display:flex;justify-content:space-between;align-items:center;
+    padding:18px clamp(16px,4vw,48px);
+    font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);
+  }
+  .hud a:hover{color:var(--ink)}
+  .hud .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--acid);margin-right:9px;animation:pulse 2.4s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+  .bar{position:fixed;top:0;left:0;right:0;height:2px;z-index:21}
+  .bar i{display:block;height:100%;background:linear-gradient(90deg,#ffb37a,var(--violet),#5bd6ff);transform:scaleX(0);transform-origin:0 50%}
+
+  main{position:relative;z-index:10}
+  .pane{
+    min-height:100svh;display:flex;align-items:center;
+    padding:0 clamp(20px,6vw,90px);
+  }
+  .pane .inner{max-width:720px;opacity:0;transform:translateY(40px);transition:opacity 1.1s var(--ease),transform 1.1s var(--ease)}
+  .pane.in .inner{opacity:1;transform:none}
+  .pane.right{justify-content:flex-end}
+  .pane.right .inner{text-align:right}
+
+  .idx{font-family:var(--mono);font-size:11px;letter-spacing:.3em;text-transform:uppercase;color:var(--acid);margin:0 0 22px}
+  h1{margin:0;font-size:clamp(2.6rem,8vw,7rem);line-height:.98;letter-spacing:-.045em;font-weight:800}
+  h1 em{font-style:normal;color:transparent;-webkit-text-stroke:1px rgba(246,243,255,.65)}
+  p{margin:26px 0 0;max-width:38ch;color:var(--muted);font-size:clamp(1rem,1.7vw,1.2rem);line-height:1.8}
+  .pane.right p{margin-left:auto}
+  .hint{position:absolute;bottom:34px;left:50%;transform:translateX(-50%);font-family:var(--mono);font-size:10px;letter-spacing:.3em;color:var(--muted);animation:float 2.6s ease-in-out infinite}
+  @keyframes float{0%,100%{transform:translate(-50%,0);opacity:.5}50%{transform:translate(-50%,8px);opacity:1}}
+
+  .cta{
+    display:inline-flex;align-items:center;gap:10px;margin-top:34px;padding:16px 30px;border-radius:999px;
+    background:var(--ink);color:#0a0812;font-weight:700;font-size:15px;
+    transition:transform .4s var(--ease),background-color .4s;
+  }
+  .cta:hover{background:var(--acid);transform:translateY(-2px)}
+
+  .loader{position:fixed;inset:0;z-index:100;background:#05040a;display:grid;place-items:center;transition:opacity .8s}
+  .loader.done{opacity:0;pointer-events:none}
+  .loader p{margin:0;font-family:var(--mono);font-size:11px;letter-spacing:.3em;color:var(--muted);text-transform:uppercase}
+
+  @media (max-width:760px){
+    .pane.right{justify-content:flex-start}
+    .pane.right .inner{text-align:left}
+    .pane.right p{margin-left:0}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .hint{animation:none}
+    .pane .inner{opacity:1;transform:none}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="scene"></canvas>
+<div class="vignette"></div>
+<div class="grain"></div>
+<div class="bar"><i id="bar"></i></div>
+
+<header class="hud">
+  <span><span class="dot"></span>Scale / 星系</span>
+  <a href="index.html">← 回到主页</a>
+</header>
+
+<div class="loader" id="loader"><p>正在生成 6 万个粒子…</p></div>
+
+<main>
+  <section class="pane">
+    <div class="inner">
+      <p class="idx">01 — Fly Through</p>
+      <h1>穿过<br>整个星系</h1>
+      <p>六万个粒子，三条旋臂。镜头从外面一路飞进去，穿过核心，再从另一侧回头看。</p>
+    </div>
+    <span class="hint">Scroll ↓</span>
+  </section>
+
+  <section class="pane right">
+    <div class="inner">
+      <p class="idx">02 — Parallax</p>
+      <h1>每一层<br>都在<em>动</em></h1>
+      <p>近处的尘埃转得快，远处的星空几乎不动。深度差本身就是动效。</p>
+    </div>
+  </section>
+
+  <section class="pane">
+    <div class="inner">
+      <p class="idx">03 — Perspective Shift</p>
+      <h1>镜头<br>转过来了</h1>
+      <p>同一团东西，从背后看是完全不同的样子。这就是视频里那种“视角切换”。</p>
+    </div>
+  </section>
+
+  <section class="pane right">
+    <div class="inner">
+      <p class="idx">04 — End</p>
+      <h1>看完了</h1>
+      <p>整个场景 654KB 的 three.js，本地托管，不依赖任何 CDN。</p>
+      <a class="cta" href="index.html">回到主页 →</a>
+    </div>
+  </section>
+</main>
+
+<script src="assets/vendor/three.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  var canvas = document.getElementById('scene');
+  var loader = document.getElementById('loader');
+  var bar = document.getElementById('bar');
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if (!window.THREE || !canvas.getContext) {
+    loader.innerHTML = '<p>你的浏览器不支持 WebGL</p>';
+    return;
+  }
+
+  var THREE = window.THREE;
+  var renderer, scene, camera, galaxy, stars, nebulas = [];
+  var mouse = { x: 0, y: 0, tx: 0, ty: 0 };
+  var scroll = 0, scrollTarget = 0;
+  var running = true;
+
+  function init() {
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x05040a, 1);
+
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 400);
+    camera.position.set(0, 2.4, 17);
+
+    // 圆形光点贴图
+    var c = document.createElement('canvas');
+    c.width = c.height = 64;
+    var g2 = c.getContext('2d');
+    var grd = g2.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grd.addColorStop(0, 'rgba(255,255,255,1)');
+    grd.addColorStop(.35, 'rgba(255,255,255,.65)');
+    grd.addColorStop(1, 'rgba(255,255,255,0)');
+    g2.fillStyle = grd;
+    g2.fillRect(0, 0, 64, 64);
+    var sprite = new THREE.CanvasTexture(c);
+
+    galaxy = buildGalaxy(sprite);
+    scene.add(galaxy);
+
+    stars = buildStars(sprite);
+    scene.add(stars);
+
+    buildNebulas();
+    bind();
+    animate(0);
+
+    window.setTimeout(function () { loader.classList.add('done'); }, 600);
+  }
+
+  function buildGalaxy(sprite) {
+    var COUNT = 60000;
+    var positions = new Float32Array(COUNT * 3);
+    var colors = new Float32Array(COUNT * 3);
+    var R = 9;
+    var core = new THREE.Color('#ffd9a8');
+    var mid = new THREE.Color('#ff8f6b');
+    var outer = new THREE.Color('#7f6bff');
+    var tmp = new THREE.Color();
+
+    for (var i = 0; i < COUNT; i++) {
+      var r = Math.pow(Math.random(), 0.62) * R;
+      var branch = (i % 3) * (Math.PI * 2 / 3);
+      var spin = r * 0.62;
+      var spread = Math.pow(Math.random(), 3) * (Math.random() < 0.5 ? 1 : -1) * (0.35 + r * 0.09);
+
+      var x = Math.cos(branch + spin) * r + spread;
+      var z = Math.sin(branch + spin) * r + spread;
+      var y = Math.pow(Math.random(), 3) * (Math.random() < 0.5 ? 1 : -1) * (0.25 + r * 0.05);
+
+      positions[i * 3] = x;
+      positions[i * 3 + 1] = y * 0.55;
+      positions[i * 3 + 2] = z;
+
+      var t = Math.min(1, r / R);
+      if (t < 0.5) tmp.copy(core).lerp(mid, t / 0.5);
+      else tmp.copy(mid).lerp(outer, (t - 0.5) / 0.5);
+
+      colors[i * 3] = tmp.r;
+      colors[i * 3 + 1] = tmp.g;
+      colors[i * 3 + 2] = tmp.b;
+    }
+
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    var mat = new THREE.PointsMaterial({
+      size: 0.055,
+      map: sprite,
+      vertexColors: true,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      sizeAttenuation: true,
+      opacity: 0.95
+    });
+
+    var pts = new THREE.Points(geo, mat);
+    pts.rotation.x = -0.12;
+    return pts;
+  }
+
+  function buildStars(sprite) {
+    var COUNT = 2600;
+    var pos = new Float32Array(COUNT * 3);
+    for (var i = 0; i < COUNT; i++) {
+      var r = 34 + Math.random() * 70;
+      var th = Math.random() * Math.PI * 2;
+      var ph = Math.acos(2 * Math.random() - 1);
+      pos[i * 3] = r * Math.sin(ph) * Math.cos(th);
+      pos[i * 3 + 1] = r * Math.cos(ph) * 0.6;
+      pos[i * 3 + 2] = r * Math.sin(ph) * Math.sin(th);
+    }
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    var mat = new THREE.PointsMaterial({
+      size: 0.9, map: sprite, color: 0xbfc8ff, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.75
+    });
+    return new THREE.Points(geo, mat);
+  }
+
+  function buildNebulas() {
+    var colors = ['#8b6bff', '#ff8f6b', '#5bd6ff', '#ccff00'];
+    for (var i = 0; i < 8; i++) {
+      var c = document.createElement('canvas');
+      c.width = c.height = 128;
+      var ctx = c.getContext('2d');
+      var grd = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+      var col = new THREE.Color(colors[i % colors.length]);
+      grd.addColorStop(0, 'rgba(' + Math.round(col.r * 255) + ',' + Math.round(col.g * 255) + ',' + Math.round(col.b * 255) + ',.5)');
+      grd.addColorStop(0.5, 'rgba(' + Math.round(col.r * 255) + ',' + Math.round(col.g * 255) + ',' + Math.round(col.b * 255) + ',.12)');
+      grd.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, 128, 128);
+
+      var tex = new THREE.CanvasTexture(c);
+      var mat = new THREE.SpriteMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.55 });
+      var s = new THREE.Sprite(mat);
+      var a = Math.random() * Math.PI * 2;
+      var r = 5 + Math.random() * 9;
+      s.position.set(Math.cos(a) * r, (Math.random() - 0.5) * 4, Math.sin(a) * r);
+      var sc = 6 + Math.random() * 10;
+      s.scale.set(sc, sc, 1);
+      scene.add(s);
+      nebulas.push(s);
+    }
+  }
+
+  function bind() {
+    window.addEventListener('resize', function () {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }, { passive: true });
+
+    window.addEventListener('mousemove', function (e) {
+      mouse.tx = (e.clientX / window.innerWidth - 0.5) * 2;
+      mouse.ty = (e.clientY / window.innerHeight - 0.5) * 2;
+    }, { passive: true });
+
+    document.addEventListener('visibilitychange', function () { running = !document.hidden; });
+  }
+
+  var clock = 0;
+
+  function animate() {
+    window.requestAnimationFrame(animate);
+    if (!running) return;
+
+    clock += 0.006;
+
+    var docH = document.documentElement.scrollHeight - window.innerHeight;
+    scrollTarget = docH > 0 ? Math.min(1, Math.max(0, window.scrollY / docH)) : 0;
+    scroll += (scrollTarget - scroll) * 0.06;
+
+    mouse.x += (mouse.tx - mouse.x) * 0.05;
+    mouse.y += (mouse.ty - mouse.y) * 0.05;
+
+    var p = reduce ? 0.25 : scroll;
+
+    // 镜头：从外围绕进去，穿过核心，再从背后看
+    var radius = 17 - p * 21;
+    var angle = p * Math.PI * 1.7 - 0.4;
+    var camX = Math.cos(angle) * radius;
+    var camZ = Math.sin(angle) * radius;
+    var camY = 2.4 - p * 3.4 + Math.sin(p * Math.PI) * 1.6;
+
+    camera.position.x += (camX - camera.position.x) * 0.06;
+    camera.position.y += (camY - camera.position.y) * 0.06;
+    camera.position.z += (camZ - camera.position.z) * 0.06;
+
+    // 鼠标视差
+    camera.position.x += mouse.x * 0.9;
+    camera.position.y += -mouse.y * 0.6;
+
+    var lookX = mouse.x * 0.6;
+    var lookY = -mouse.y * 0.4;
+    camera.lookAt(lookX, lookY, 0);
+
+    // 银河自转 + 呼吸
+    galaxy.rotation.y += 0.0009;
+    galaxy.rotation.x = -0.12 + Math.sin(clock * 0.4) * 0.02;
+
+    stars.rotation.y -= 0.00018;
+    stars.rotation.x += 0.00005;
+
+    for (var i = 0; i < nebulas.length; i++) {
+      nebulas[i].material.opacity = 0.35 + Math.sin(clock * 0.8 + i) * 0.12;
+    }
+
+    if (bar) bar.style.transform = 'scaleX(' + p + ')';
+
+    renderer.render(scene, camera);
+  }
+
+  // 等一帧再初始化，保证 canvas 尺寸正确
+  window.requestAnimationFrame(function () {
+    try { init(); } catch (e) {
+      loader.innerHTML = '<p>WebGL 初始化失败</p>';
+    }
+  });
+
+  // 段落进场
+  var panes = document.querySelectorAll('.pane');
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) e.target.classList.add('in'); });
+    }, { threshold: 0.35 });
+    panes.forEach(function (p) { io.observe(p); });
+  } else {
+    panes.forEach(function (p) { p.classList.add('in'); });
+  }
+})();
+</script>
+</body>
+</html>
