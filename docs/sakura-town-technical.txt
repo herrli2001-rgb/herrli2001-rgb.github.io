@@ -1,0 +1,79 @@
+樱花小镇｜需求与技术说明
+
+整理日期：2026-10-29
+
+文档性质：基于现有工程回溯整理，不是原始历史 PRD；以下验收项是标准，不代表本次已经执行。
+
+作品状态：已上线，持续迭代（创作者确认）。
+
+一、产品定义
+
+围绕烟花祭展开的生活漫游与同伴剧情
+
+用一条轻量、可恢复的故事线串联人物、物资、交通和烟花，同时保留故事结束后的自由探索。
+
+目标用户：喜欢生活漫游、低压力任务与小镇氛围的玩家。
+
+二、需求与优先级
+
+P0 / 故事推进：从拜访镇长、认识居民、准备物资到邀请同伴、乘车和看烟花，按明确条件推进。
+
+P0 / 恢复进度：保存故事步骤和相关状态，载入时处理部分状态不一致的情况。
+
+P1 / 居民活动：依据角色、时段、居所与工作点生成活动、路径、停留时间和速度。
+
+P1 / 交通与节庆：角色、汽车、直升机、轻轨、同伴与烟花模块在同一体验中协作。
+
+三、核心用户路径
+
+认识镇长 → 认识居民 → 购买物资 → 邀请同伴 → 乘坐轻轨 → 观看烟花 → 继续自由探索
+
+四、技术栈
+
+Unity 6000.6.7f1 / C# / PlayerPrefs
+
+五、模块职责
+
+场景与日常｜TownBuilder.cs / TownGame.cs / TownGame.Life.cs：构建小镇，连接场所、生活活动和交互。
+
+故事状态｜StoryController.cs：以枚举记录步骤，检查条件并推进；持久化步骤、金钱、物资和同伴状态。
+
+居民日程｜ResidentSchedule.cs：GetTarget 接收角色、小时与活动点，返回活动、路径、停留时间和速度。
+
+角色与相机｜TravelerController.cs / ThirdPersonCamera.cs：管理第三人称移动和相机观察。
+
+交通与同伴｜KeiCarController.cs / HelicopterController.cs / LightRailController.cs / CompanionController.cs：拆分不同交通与跟随职责，再与故事状态协同。
+
+环境与节庆｜WeatherController.cs / WaterInteraction.cs / FireworksController.cs / FestivalLawn.cs：提供天气、水域与节庆活动的环境反馈。
+
+六、状态与数据流
+
+NotStarted → MeetMayor → MeetMiko → BuySupplies → InviteCompanion → RideTrain → WatchFireworks → Complete
+
+七、验收清单
+
+待检查｜步骤门控：未满足物资、同伴等条件时不得跳过必要步骤；界面能说明下一步。
+
+待检查｜恢复一致性：退出并重新载入后，故事步骤、金钱、物资和同伴状态相互一致。
+
+待检查｜居民时段：改变时间后，居民按角色进入工作、用餐、购物、夜间散步或烟花草坪等活动。
+
+待检查｜完成后探索：完成烟花故事后仍可自由移动和使用允许的交通、场所。
+
+待检查｜异常回归：重复邀请、切换车辆、同伴脱离、存档恢复等边界逐项检查。
+
+八、测试与证据
+
+记录版本、设备、操作路径、预期、实际结果与复现素材。冒烟测试覆盖从进入游戏到核心体验完成；异常检查覆盖重复交互、切换状态和重新载入。性能采样分别观察 CPU 与 GPU 帧时间。
+
+已有工程截图、原始实机录屏和宣传片作为展示证据，不替代功能验收报告。
+
+九、限制与后续
+
+当前检查到的包清单没有提供采用 URP 的依据，因此不将 URP 写入技术栈。PlayerPrefs 适用于当前轻量状态持久化，后续可根据数据规模引入版本化存档。两分钟 PV 包含录制专用摄影机视角；实机录屏另行提供。
+
+十、依据
+
+ProjectSettings/ProjectVersion.txt；Packages/manifest.json；Assets/Scripts/StoryController.cs、ResidentSchedule.cs、TownGame.cs、LightRailController.cs 等现有脚本。
+
+项目未在本页提供安装包下载或未核验的发布链接。
