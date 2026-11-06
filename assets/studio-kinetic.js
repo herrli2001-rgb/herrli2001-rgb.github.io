@@ -86,11 +86,40 @@
   let waveFrame = 0, waveVisible = true, lastWave = 0, width = 1, height = 1, phase = 0;
   const pointer = { x: -500, y: -500, targetX: -500, targetY: -500, down: false };
   const shocks = [];
+  let introProgress = 0;
+  const waveWords = $$('[data-wave-word]', field).map((node, index) => ({
+    node, index, x: 0, y: 0, dx: 0, dy: 0, halfWidth: 0, halfHeight: 0, dragging: false
+  }));
+  function measureWaveWords() {
+    waveWords.forEach(word => {
+      const compact = innerWidth <= 700;
+      word.x = width * Number(compact ? word.node.dataset.mobileX : word.node.dataset.x) / 100;
+      word.y = height * Number(compact ? word.node.dataset.mobileY : word.node.dataset.y) / 100;
+      word.halfWidth = word.node.offsetWidth / 2; word.halfHeight = word.node.offsetHeight / 2;
+      clampWord(word);
+    });
+  }
+  function clampWord(word) {
+    word.dx = clamp(word.dx, -word.x + word.halfWidth + 8, width - word.x - word.halfWidth - 8);
+    word.dy = clamp(word.dy, -word.y + word.halfHeight + 8, height - word.y - word.halfHeight - 8);
+  }
+  function paintWaveWords() {
+    const drift = motion() ? 1 : 0;
+    const spread = reduced.matches ? 0 : introProgress;
+    waveWords.forEach(word => {
+      const floatX = word.dragging ? 0 : Math.sin(phase * .7 + word.index * 1.7) * 3 * drift;
+      const floatY = word.dragging ? 0 : Math.cos(phase * .6 + word.index * 1.3) * 4 * drift;
+      const dx = word.dx + floatX + (word.x - width * .5) * spread * .16;
+      const dy = word.dy + floatY + (word.y - height * .5) * spread * .3 - spread * 22;
+      word.node.style.setProperty('--word-dx', dx.toFixed(2) + 'px');
+      word.node.style.setProperty('--word-dy', dy.toFixed(2) + 'px');
+    });
+  }
   function resizeWave() {
     const box = field.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 1.35);
     width = Math.max(1, box.width); height = Math.max(1, box.height);
     canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); drawWave(0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); measureWaveWords(); drawWave(0);
   }
   function drawWave(dt) {
     phase += dt * .00019;
@@ -98,12 +127,13 @@
     ctx.fillRect(0, 0, width, height); ctx.strokeStyle = '#24170b'; ctx.lineWidth = .85;
     pointer.x += (pointer.targetX - pointer.x) * .16; pointer.y += (pointer.targetY - pointer.y) * .16;
     const amplitude = Math.min(80, width * .065), spacing = innerWidth <= 700 ? 8.5 : 9.5;
+    const flow = phase + introProgress * 3.2;
     ctx.beginPath();
     for (let origin = -70; origin <= width + 70; origin += spacing) {
       for (let y = -20; y <= height + 20; y += 13) {
         const envelope = Math.sin(Math.PI * clamp(y / height));
-        let x = origin + Math.sin(y * .008 + origin * .009 + phase) * amplitude * envelope
-          + Math.sin(y * .016 - origin * .003 + phase * 1.5) * amplitude * .32 * envelope;
+        let x = origin + Math.sin(y * .008 + origin * .009 + flow) * amplitude * envelope
+          + Math.sin(y * .016 - origin * .003 + flow * 1.5) * amplitude * .32 * envelope;
         const dx = x - pointer.x, dy = y - pointer.y, distance = Math.hypot(dx, dy);
         if (distance < 220) x += Math.sign(dx || 1) * Math.pow(1 - distance / 220, 2) * (pointer.down ? 90 : 50);
         for (const shock of shocks) {
@@ -116,6 +146,7 @@
     ctx.stroke();
     shocks.forEach(shock => shock.age += dt);
     while (shocks.length && shocks[0].age > 1100) shocks.shift();
+    paintWaveWords();
   }
   function waveTick(now) {
     waveFrame = 0;
@@ -154,6 +185,92 @@
   new ResizeObserver(resizeWave).observe(field);
   new IntersectionObserver(entries => { waveVisible = entries[0].isIntersecting; syncWave(); }, { threshold: 0 }).observe(field);
   contrast.addEventListener('click', () => drawWave(0));
+
+  // Keywords belong to the live wave, with independent, bounded pointer dragging.
+  waveWords.forEach(word => {
+    const node = word.node;
+    let originX = 0, originY = 0, startX = 0, startY = 0, moved = false, tapTimer = 0;
+    node.addEventListener('pointerdown', event => {
+      if (event.button !== 0) return;
+      event.stopPropagation(); event.preventDefault();
+      word.dragging = true; moved = false;
+      originX = word.dx; originY = word.dy; startX = event.clientX; startY = event.clientY;
+      node.classList.add('is-held'); node.setPointerCapture(event.pointerId);
+      node.focus({ preventScroll: true });
+    });
+    node.addEventListener('pointermove', event => {
+      if (!word.dragging) return;
+      const x = event.clientX - startX, y = event.clientY - startY;
+      if (Math.hypot(x, y) > 5) moved = true;
+      word.dx = originX + x; word.dy = originY + y; clampWord(word); paintWaveWords();
+    });
+    const finish = () => { word.dragging = false; node.classList.remove('is-held'); };
+    node.addEventListener('pointerup', finish); node.addEventListener('pointercancel', finish); node.addEventListener('lostpointercapture', finish);
+    node.addEventListener('click', event => {
+      if (moved && event.detail !== 0) return;
+      shocks.push({ x: word.x + word.dx, y: word.y + word.dy, age: 0 });
+      if (shocks.length > 3) shocks.shift();
+      node.classList.add('is-tapped'); clearTimeout(tapTimer);
+      tapTimer = setTimeout(() => node.classList.remove('is-tapped'), 420);
+    });
+    const reset = () => { word.dx = 0; word.dy = 0; paintWaveWords(); };
+    node.addEventListener('dblclick', reset);
+    node.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { reset(); return; }
+      const directions = { ArrowLeft: [-18, 0], ArrowRight: [18, 0], ArrowUp: [0, -18], ArrowDown: [0, 18] };
+      if (!directions[event.key]) return;
+      event.preventDefault(); word.dx += directions[event.key][0]; word.dy += directions[event.key][1];
+      clampWord(word); paintWaveWords();
+    });
+  });
+
+  // A reversible scroll sequence, separate from the entrance animations below it.
+  const openingSequence = $('[data-opening-scroll]'), opening = $('.opening', openingSequence);
+  const openingHeader = $('.kinetic-header'), motto = $('.display-line--motto', opening);
+  let introTravel = 1, headerHeight = 0, introBaseHeight = 1, introGrowth = 0, lastIntro = -1, lastHeroHeight = -1;
+  function sizeOpening() {
+    headerHeight = openingHeader.offsetHeight;
+    const compact = innerWidth <= 700, gutters = compact ? 17 : 33;
+    introBaseHeight = Math.max(compact ? 550 : 480, innerHeight - headerHeight - gutters);
+    const fullHeight = Math.max(introBaseHeight, innerHeight - (compact ? 9 : 17));
+    introGrowth = fullHeight - introBaseHeight;
+    introTravel = Math.round(Math.min(780, innerHeight * (compact ? .62 : .86)));
+    openingSequence.style.setProperty('--intro-height', introBaseHeight + 'px');
+    openingSequence.style.setProperty('--intro-full-height', fullHeight + 'px');
+    openingSequence.style.setProperty('--intro-travel', introTravel + 'px');
+    lastIntro = -1; lastHeroHeight = -1; window.XPScroll.request();
+  }
+  new ResizeObserver(sizeOpening).observe(openingHeader);
+  addEventListener('resize', sizeOpening, { passive: true });
+  reduced.addEventListener('change', () => { sizeOpening(); paintWaveWords(); });
+  document.fonts?.ready.then(resizeWave); sizeOpening();
+  window.XPScroll.register('opening-transition', context => {
+    const bounds = openingSequence.getBoundingClientRect();
+    const start = bounds.top + context.y - headerHeight - (context.width <= 700 ? 9 : 17);
+    const distance = Math.max(0, context.y - start);
+    const progress = reduced.matches ? 0 : clamp(distance / (introTravel + introGrowth));
+    const heroHeight = Math.round(introBaseHeight + (reduced.matches ? 0 : Math.min(distance, introGrowth)));
+    if (Math.abs(progress - lastIntro) < .0001 && heroHeight === lastHeroHeight) return;
+    const width = bounds.width;
+    return () => {
+      lastIntro = progress; introProgress = progress;
+      if (heroHeight !== lastHeroHeight) {
+        openingSequence.style.setProperty('--intro-height', heroHeight + 'px'); lastHeroHeight = heroHeight;
+      }
+      opening.style.setProperty('--intro-progress', progress.toFixed(4));
+      opening.style.setProperty('--wave-y', (-progress * 34).toFixed(2) + 'px');
+      opening.style.setProperty('--wave-scale', (1 + progress * .18).toFixed(4));
+      opening.style.setProperty('--wave-opacity', (1 - progress * .15).toFixed(4));
+      opening.style.setProperty('--motto-x', (progress * width * .025).toFixed(2) + 'px');
+      opening.style.setProperty('--motto-y', (-progress * 12).toFixed(2) + 'px');
+      opening.style.setProperty('--motto-turn', (progress * .75).toFixed(3) + 'deg');
+      opening.style.setProperty('--motto-scale', (1 - progress * .1).toFixed(4));
+      opening.style.setProperty('--motto-opacity', (1 - smooth((progress - .6) / .4) * .25).toFixed(4));
+      opening.style.setProperty('--keyword-opacity', (1 - smooth((progress - .6) / .4) * .35).toFixed(4));
+      $('.display-star', motto).style.setProperty('--star-angle', (progress * 300).toFixed(2) + 'deg');
+      paintWaveWords();
+    };
+  });
 
   // Sticky portals and flying, clickable real project screens.
   const walls = $$('[data-wall]').map(section => ({ section, stage: $('.wall-stage', section), gallery: $('.wall-gallery', section),
@@ -212,7 +329,6 @@
         });
         wall.counter.textContent = String(nearest + 1).padStart(2, '0') + ' / 08';
       });
-      const title = $('.opening .display-star'); title.style.setProperty('--star-angle', (context.y * .08).toFixed(2) + 'deg');
     };
   });
   $$('[data-wall-card]').forEach(card => {
@@ -256,7 +372,7 @@
 
   // Every chapter gets a restrained entrance and a small scroll drift. The wall keeps
   // its own choreography; these transitions make the editorial sections feel alive too.
-  const scrollReveals = $$('.section-caption,.display-line--games,.editorial-statement,.project-index,.about-top,.resume-grid,.result-band,.contact-meta,.contact-title,.contact-email,.bit-strip');
+  const scrollReveals = $$('.section-caption,.display-line--games,.editorial-statement,.project-index,.about-top,.resume-grid,.result-band,.contact-meta,.contact-title,.contact-email,.bit-strip').filter(element => !element.closest('.opening'));
   const scrollRevealObserver = new IntersectionObserver(entries => {
     entries.forEach(entry => {
       if (!entry.isIntersecting) return;
