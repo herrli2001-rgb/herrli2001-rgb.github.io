@@ -1,4 +1,4 @@
-/* Hidden keyword discoveries. Nothing is rendered in the wave until a deliberate drag. */
+/* Pointer-motion discoveries. The resting wave is empty; no mouse button is required. */
 (() => {
   'use strict';
   const field = document.querySelector('[data-waves]');
@@ -11,15 +11,18 @@
   const motion = () => !reduced.matches && !document.hidden && !document.querySelector('dialog[open]');
   const ripples = [], discoveries = new Map();
   let width = 1, height = 1, phase = 0, progress = 0, visible = true, frame = 0, lastFrame = 0;
-  let bag = [], lastWordAt = -Infinity, lastWordX = -500, lastWordY = -500;
+  let bag = [], lastWordKind = '', lastWordAt = -Infinity, lastWordX = -500, lastWordY = -500, lastRippleAt = 0, discoverySide = 1;
   const pointer = { x: -500, y: -500, tx: -500, ty: -500 };
+  const trace = { valid: false, clientX: 0, clientY: 0 };
   const drag = { pending: false, active: false, moved: false, startX: 0, startY: 0, lastX: 0, lastY: 0, rippleX: 0, rippleY: 0 };
   function nextWord() {
     if (!bag.length) {
       bag = pool.slice();
       for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; }
     }
-    return bag.pop();
+    const alternative = bag.findIndex(label => keywordStyle(label)[0] !== lastWordKind);
+    const label = bag.splice(alternative < 0 ? bag.length - 1 : alternative, 1)[0];
+    lastWordKind = keywordStyle(label)[0]; return label;
   }
   function dispose(node) {
     const state = discoveries.get(node);
@@ -29,37 +32,65 @@
   function clearWords(fade = false) {
     discoveries.forEach((state, node) => {
       if (!fade || reduced.matches) { dispose(node); return; }
-      const opacity = getComputedStyle(node).opacity;
-      state.animation?.cancel(); clearTimeout(state.timer);
-      state.animation = node.animate([{ opacity }, { opacity: 0 }], { duration: 280, fill: 'forwards', easing: 'ease-out' });
-      state.timer = setTimeout(() => dispose(node), 300);
+      retire(node, 280);
     });
   }
+  function retire(node, duration = 200) {
+    const state = discoveries.get(node);
+    if (!state || state.retiring) return;
+    state.retiring = true;
+    const opacity = getComputedStyle(node).opacity;
+    state.animation?.cancel(); clearTimeout(state.timer);
+    state.animation = node.animate([{ opacity }, { opacity: 0 }], { duration, fill: 'forwards', easing: 'ease-out' });
+    state.timer = setTimeout(() => dispose(node), duration + 20);
+  }
+  function keywordStyle(label) {
+    if (label === 'AI NATIVE') return ['identity', 'MINDSET', 1.1];
+    if (label === 'GAME DEVELOPMENT') return ['craft', 'CRAFT', 1];
+    if (label === 'AI PRODUCT MANAGER') return ['business', 'PRODUCT', .8];
+    if (label === 'GERMAN') return ['business', 'LANGUAGE', .9];
+    if (['FINANCE', 'INVESTMENT BANKING', 'E-COMMERCE', 'RETAIL OPERATIONS'].includes(label)) return ['business', 'BUSINESS', .8];
+    return ['toolkit', 'TOOLKIT', .76];
+  }
   function discover(x, y, dx = 1, dy = 0) {
-    const limit = innerWidth <= 700 ? 3 : 4;
-    if (discoveries.size >= limit) dispose(discoveries.keys().next().value);
-    const node = document.createElement('span'); node.className = 'wave-discovery'; node.textContent = nextWord();
-    const fontSize = innerWidth <= 700 ? 12 : clamp(width * .017, 17, 27);
-    const halfWidth = node.textContent.length * fontSize * .31 + 10;
-    const speed = Math.hypot(dx, dy) || 1, side = Math.random() < .5 ? -1 : 1;
-    const px = clamp(x - dy / speed * side * 34, halfWidth, width - halfWidth);
-    const py = clamp(y + dx / speed * side * 34, 28, height - 28);
-    node.style.left = px + 'px'; node.style.top = py + 'px'; node.style.fontSize = fontSize + 'px';
+    const compact = innerWidth <= 700, limit = compact ? 2 : 3;
+    const active = [...discoveries].filter(([, state]) => !state.retiring);
+    if (active.length >= limit) retire(active[0][0]);
+    const label = nextWord(), [kind, group, size] = keywordStyle(label);
+    const node = document.createElement('span'); node.className = 'wave-discovery'; node.dataset.kind = kind; node.dataset.keyword = label;
+    const eyebrow = document.createElement('span'); eyebrow.className = 'discovery-eyebrow';
+    eyebrow.textContent = String(pool.indexOf(label) + 1).padStart(2, '0') + ' / ' + group;
+    const word = document.createElement('span'); word.className = 'discovery-word'; word.textContent = label;
+    const rule = document.createElement('span'); rule.className = 'discovery-rule';
+    node.append(eyebrow, word, rule);
+    const fontSize = (compact ? clamp(width * .078, 23, 32) : clamp(width * .038, 36, 60)) * size;
+    node.style.fontSize = fontSize + 'px'; node.style.visibility = 'hidden';
     layer.append(node);
-    const driftX = dx / speed * 22 + side * 8, driftY = -18 + dy / speed * 12;
+    let measuredWidth = node.offsetWidth;
+    if (measuredWidth > width - 36) { node.style.fontSize = (fontSize * (width - 36) / measuredWidth) + 'px'; measuredWidth = node.offsetWidth; }
+    const halfWidth = measuredWidth / 2, halfHeight = node.offsetHeight / 2;
+    const speed = Math.hypot(dx, dy) || 1, side = discoverySide; discoverySide *= -1;
+    const safe = (cx, cy) => [clamp(cx, halfWidth + 16, width - halfWidth - 16), clamp(cy, halfHeight + 14, height - halfHeight - 14)];
+    const candidates = [safe(x, y + side * 70), safe(x, y - side * 70), safe(x + 110, y), safe(x - 110, y)];
+    const occupied = [...discoveries.values()].filter(state => !state.retiring);
+    const position = candidates.find(([cx, cy]) => occupied.every(state => Math.abs(cx - state.x) > (measuredWidth + state.width) / 2 + 20 || Math.abs(cy - state.y) > (halfHeight * 2 + state.height) / 2 + 16)) || candidates[0];
+    const [px, py] = position;
+    node.style.left = px + 'px'; node.style.top = py + 'px'; node.style.visibility = '';
+    const driftX = dx / speed * 16, driftY = -10 + dy / speed * 8;
     const transform = (x, y, scale) => `translate(-50%,-50%) translate3d(${x}px,${y}px,0) scale(${scale})`;
     const animation = reduced.matches ? null : node.animate([
-      { opacity: 0, transform: transform(0, 8, .86), offset: 0, easing: 'cubic-bezier(.16,1,.3,1)' },
-      { opacity: 1, transform: transform(driftX * .2, 0, 1), offset: .18 },
-      { opacity: .92, transform: transform(driftX * .65, driftY * .65, 1), offset: .6, easing: 'ease-in' },
-      { opacity: 0, transform: transform(driftX, driftY, 1.04), offset: 1 }
-    ], { duration: 1850, fill: 'both' });
-    const state = { animation, timer: setTimeout(() => dispose(node), reduced.matches ? 900 : 1900) };
+      { opacity: 0, clipPath: 'inset(100% 0 0)', transform: transform(0, 14, .96), offset: 0, easing: 'cubic-bezier(.16,1,.3,1)' },
+      { opacity: 1, clipPath: 'inset(0)', transform: transform(driftX * .2, 0, 1), offset: .16 },
+      { opacity: 1, clipPath: 'inset(0)', transform: transform(driftX * .65, driftY * .65, 1), offset: .64, easing: 'ease-in' },
+      { opacity: 0, clipPath: 'inset(0)', transform: transform(driftX, driftY, 1.02), offset: 1 }
+    ], { duration: 2200, fill: 'both' });
+    const state = { animation, x: px, y: py, width: measuredWidth, height: halfHeight * 2, retiring: false, timer: setTimeout(() => dispose(node), reduced.matches ? 900 : 2250) };
     discoveries.set(node, state); animation?.finished.then(() => dispose(node), () => {});
     lastWordAt = performance.now(); lastWordX = x; lastWordY = y;
   }
   function ripple(x, y, strength = 1) {
     ripples.push({ x, y, age: 0, strength }); if (ripples.length > 4) ripples.shift();
+    lastRippleAt = performance.now();
   }
   function draw(dt) {
     phase += dt * .00015;
@@ -115,6 +146,10 @@
     else { ripples.length = 0; clearWords(); draw(0); }
   }
   function finish() { drag.pending = drag.active = drag.moved = false; field.classList.remove('is-dragging'); }
+  field.addEventListener('pointerenter', event => {
+    trace.valid = true; trace.clientX = event.clientX; trace.clientY = event.clientY;
+    const bounds = field.getBoundingClientRect(); drag.rippleX = event.clientX - bounds.left; drag.rippleY = event.clientY - bounds.top;
+  });
   field.addEventListener('pointerdown', event => {
     if (event.button !== 0) return;
     const box = field.getBoundingClientRect();
@@ -125,8 +160,18 @@
   });
   field.addEventListener('pointermove', event => {
     const box = field.getBoundingClientRect(), x = event.clientX - box.left, y = event.clientY - box.top;
+    const hoverDx = trace.valid ? event.clientX - trace.clientX : event.movementX;
+    const hoverDy = trace.valid ? event.clientY - trace.clientY : event.movementY;
+    trace.valid = true; trace.clientX = event.clientX; trace.clientY = event.clientY;
     pointer.tx = x; pointer.ty = y;
-    if (!drag.pending) { if (reduced.matches) draw(0); return; }
+    if (!drag.pending) {
+      if (event.pointerType !== 'touch' && Math.hypot(hoverDx, hoverDy) > .7 && x >= 0 && y >= 0 && x <= width && y <= height) {
+        const now = performance.now(); phase += hoverDx * .0006;
+        if (Math.hypot(x - drag.rippleX, y - drag.rippleY) > 48 || now - lastRippleAt > 180) { ripple(x, y, .85); drag.rippleX = x; drag.rippleY = y; }
+        if (now - lastWordAt > 330 && (Math.hypot(x - lastWordX, y - lastWordY) > 90 || now - lastWordAt > 800)) discover(x, y, hoverDx, hoverDy);
+      }
+      if (reduced.matches) draw(0); return;
+    }
     if (x < 0 || y < 0 || x > width || y > height) { finish(); clearWords(true); return; }
     const travelX = x - drag.startX, travelY = y - drag.startY;
     if (!drag.active && event.pointerType === 'touch' && Math.abs(travelX) > 10 && Math.abs(travelX) > Math.abs(travelY) * 1.2) {
@@ -139,12 +184,12 @@
     if (Math.hypot(x - drag.rippleX, y - drag.rippleY) > 42) { ripple(x, y); drag.rippleX = x; drag.rippleY = y; }
     if (Math.hypot(travelX, travelY) > 12) {
       drag.moved = true;
-      if (performance.now() - lastWordAt > 180 && Math.hypot(x - lastWordX, y - lastWordY) > 65) discover(x, y, dx, dy);
+      if (performance.now() - lastWordAt > 330 && (Math.hypot(x - lastWordX, y - lastWordY) > 90 || performance.now() - lastWordAt > 800)) discover(x, y, dx, dy);
     }
     drag.lastX = x; drag.lastY = y;
     if (reduced.matches) draw(0);
   }, { passive: false });
-  field.addEventListener('pointerleave', () => { pointer.tx = pointer.ty = -500; finish(); clearWords(true); });
+  field.addEventListener('pointerleave', () => { pointer.tx = pointer.ty = -500; trace.valid = false; lastWordAt = -Infinity; finish(); clearWords(true); });
   field.addEventListener('pointercancel', () => { finish(); clearWords(true); });
   addEventListener('pointerup', finish);
   field.addEventListener('lostpointercapture', finish);
