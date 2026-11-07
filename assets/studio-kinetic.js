@@ -53,8 +53,8 @@
         const usable = line.clientWidth - (innerWidth <= 700 ? 24 : 40);
         const base = innerWidth * .17;
         line.style.setProperty('--display-size', base + 'px');
-        const widths = spans.map(span => span.getBoundingClientRect().width);
-        const needed = mobile ? Math.max(...widths) : widths.reduce((a, b) => a + b, 0) + (star?.getBoundingClientRect().width || 0) + innerWidth * .032;
+        const widths = spans.map(span => span.offsetWidth);
+        const needed = mobile ? Math.max(...widths) : widths.reduce((a, b) => a + b, 0) + (star?.clientWidth || 0) + innerWidth * .032;
         line.style.setProperty('--display-size', (base * Math.min(1.35, usable / Math.max(1, needed))) + 'px');
       });
       window.XPScroll.request();
@@ -65,8 +65,8 @@
   if (!reduced.matches) {
     const introWords = $$('.opening .glyph');
     introWords.forEach((glyph, index) => {
-      glyph.classList.add('is-flipped');
-      setTimeout(() => glyph.classList.remove('is-flipped'), 300 + index * 32);
+      glyph.animate([{ opacity: 0, transform: 'translateY(35%) rotateX(-30deg)' }, { opacity: 1, transform: 'none' }],
+        { duration: 650, delay: index * 28, fill: 'backwards', easing: 'cubic-bezier(.16,1,.3,1)' });
     });
   }
   const consoleNode = $('[data-console]');
@@ -81,148 +81,7 @@
   }
   scheduleConsole();
 
-  // Vertical live wave field, cursor repulsion and click shock. 30fps, visible only.
-  const field = $('[data-waves]'), canvas = $('canvas', field), ctx = canvas.getContext('2d', { alpha: false });
-  let waveFrame = 0, waveVisible = true, lastWave = 0, width = 1, height = 1, phase = 0;
-  const pointer = { x: -500, y: -500, targetX: -500, targetY: -500, down: false };
-  const shocks = [];
-  let introProgress = 0;
-  const waveWords = $$('[data-wave-word]', field).map((node, index) => ({
-    node, index, x: 0, y: 0, dx: 0, dy: 0, halfWidth: 0, halfHeight: 0, dragging: false
-  }));
-  function measureWaveWords() {
-    waveWords.forEach(word => {
-      const compact = innerWidth <= 700;
-      word.x = width * Number(compact ? word.node.dataset.mobileX : word.node.dataset.x) / 100;
-      word.y = height * Number(compact ? word.node.dataset.mobileY : word.node.dataset.y) / 100;
-      word.halfWidth = word.node.offsetWidth / 2; word.halfHeight = word.node.offsetHeight / 2;
-      clampWord(word);
-    });
-  }
-  function clampWord(word) {
-    word.dx = clamp(word.dx, -word.x + word.halfWidth + 8, width - word.x - word.halfWidth - 8);
-    word.dy = clamp(word.dy, -word.y + word.halfHeight + 8, height - word.y - word.halfHeight - 8);
-  }
-  function paintWaveWords() {
-    const drift = motion() ? 1 : 0;
-    const spread = reduced.matches ? 0 : introProgress;
-    waveWords.forEach(word => {
-      const floatX = word.dragging ? 0 : Math.sin(phase * .7 + word.index * 1.7) * 3 * drift;
-      const floatY = word.dragging ? 0 : Math.cos(phase * .6 + word.index * 1.3) * 4 * drift;
-      const dx = word.dx + floatX + (word.x - width * .5) * spread * .16;
-      const dy = word.dy + floatY + (word.y - height * .5) * spread * .3 - spread * 22;
-      word.node.style.setProperty('--word-dx', dx.toFixed(2) + 'px');
-      word.node.style.setProperty('--word-dy', dy.toFixed(2) + 'px');
-    });
-  }
-  function resizeWave() {
-    const box = field.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 1.35);
-    width = Math.max(1, box.width); height = Math.max(1, box.height);
-    canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); measureWaveWords(); drawWave(0);
-  }
-  function drawWave(dt) {
-    phase += dt * .00019;
-    ctx.fillStyle = document.body.classList.contains('contrasted') ? '#fff8e8' : '#f4c95d';
-    ctx.fillRect(0, 0, width, height); ctx.strokeStyle = '#24170b'; ctx.lineWidth = .85;
-    pointer.x += (pointer.targetX - pointer.x) * .16; pointer.y += (pointer.targetY - pointer.y) * .16;
-    const amplitude = Math.min(80, width * .065), spacing = innerWidth <= 700 ? 8.5 : 9.5;
-    const flow = phase + introProgress * 3.2;
-    ctx.beginPath();
-    for (let origin = -70; origin <= width + 70; origin += spacing) {
-      for (let y = -20; y <= height + 20; y += 13) {
-        const envelope = Math.sin(Math.PI * clamp(y / height));
-        let x = origin + Math.sin(y * .008 + origin * .009 + flow) * amplitude * envelope
-          + Math.sin(y * .016 - origin * .003 + flow * 1.5) * amplitude * .32 * envelope;
-        const dx = x - pointer.x, dy = y - pointer.y, distance = Math.hypot(dx, dy);
-        if (distance < 220) x += Math.sign(dx || 1) * Math.pow(1 - distance / 220, 2) * (pointer.down ? 90 : 50);
-        for (const shock of shocks) {
-          const d = Math.hypot(x - shock.x, y - shock.y);
-          x += Math.sign(x - shock.x || 1) * Math.exp(-Math.pow((d - shock.age * .48) / 62, 2)) * 42 * (1 - shock.age / 1100);
-        }
-        if (y === -20) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      }
-    }
-    ctx.stroke();
-    shocks.forEach(shock => shock.age += dt);
-    while (shocks.length && shocks[0].age > 1100) shocks.shift();
-    paintWaveWords();
-  }
-  function waveTick(now) {
-    waveFrame = 0;
-    if (!motion() || !waveVisible) { lastWave = 0; return; }
-    if (!lastWave || now - lastWave >= 31) { drawWave(lastWave ? Math.min(60, now - lastWave) : 16); lastWave = now; }
-    waveFrame = requestAnimationFrame(waveTick);
-  }
-  function syncWave() {
-    if (waveFrame) cancelAnimationFrame(waveFrame); waveFrame = 0; lastWave = 0;
-    if (motion() && waveVisible) waveFrame = requestAnimationFrame(waveTick);
-    else drawWave(0);
-  }
-  const waveDrag = { active: false, lastX: 0, lastY: 0 };
-  field.addEventListener('pointermove', event => {
-    const box = field.getBoundingClientRect();
-    const x = event.clientX - box.left, y = event.clientY - box.top;
-    if (waveDrag.active && event.pointerType === 'mouse') {
-      phase += (x - waveDrag.lastX) * .0025;
-      if (Math.hypot(x - waveDrag.lastX, y - waveDrag.lastY) > 8) {
-        shocks.push({ x, y, age: 0 }); if (shocks.length > 3) shocks.shift();
-      }
-      waveDrag.lastX = x; waveDrag.lastY = y;
-    }
-    pointer.targetX = x; pointer.targetY = y;
-  }, { passive: true });
-  field.addEventListener('pointerleave', () => { pointer.targetX = -500; pointer.targetY = -500; pointer.down = false; waveDrag.active = false; field.classList.remove('is-dragging'); });
-  field.addEventListener('pointerdown', event => {
-    if (event.button !== 0 || event.pointerType === 'touch') return;
-    const box = field.getBoundingClientRect(); pointer.down = true;
-    waveDrag.active = true; waveDrag.lastX = event.clientX - box.left; waveDrag.lastY = event.clientY - box.top;
-    field.classList.add('is-dragging'); field.setPointerCapture?.(event.pointerId);
-    shocks.push({ x: waveDrag.lastX, y: waveDrag.lastY, age: 0 }); if (shocks.length > 3) shocks.shift();
-  });
-  function finishWaveDrag() { pointer.down = false; waveDrag.active = false; field.classList.remove('is-dragging'); }
-  addEventListener('pointerup', finishWaveDrag); addEventListener('pointercancel', finishWaveDrag);
-  new ResizeObserver(resizeWave).observe(field);
-  new IntersectionObserver(entries => { waveVisible = entries[0].isIntersecting; syncWave(); }, { threshold: 0 }).observe(field);
-  contrast.addEventListener('click', () => drawWave(0));
-
-  // Keywords belong to the live wave, with independent, bounded pointer dragging.
-  waveWords.forEach(word => {
-    const node = word.node;
-    let originX = 0, originY = 0, startX = 0, startY = 0, moved = false, tapTimer = 0;
-    node.addEventListener('pointerdown', event => {
-      if (event.button !== 0) return;
-      event.stopPropagation(); event.preventDefault();
-      word.dragging = true; moved = false;
-      originX = word.dx; originY = word.dy; startX = event.clientX; startY = event.clientY;
-      node.classList.add('is-held'); node.setPointerCapture(event.pointerId);
-      node.focus({ preventScroll: true });
-    });
-    node.addEventListener('pointermove', event => {
-      if (!word.dragging) return;
-      const x = event.clientX - startX, y = event.clientY - startY;
-      if (Math.hypot(x, y) > 5) moved = true;
-      word.dx = originX + x; word.dy = originY + y; clampWord(word); paintWaveWords();
-    });
-    const finish = () => { word.dragging = false; node.classList.remove('is-held'); };
-    node.addEventListener('pointerup', finish); node.addEventListener('pointercancel', finish); node.addEventListener('lostpointercapture', finish);
-    node.addEventListener('click', event => {
-      if (moved && event.detail !== 0) return;
-      shocks.push({ x: word.x + word.dx, y: word.y + word.dy, age: 0 });
-      if (shocks.length > 3) shocks.shift();
-      node.classList.add('is-tapped'); clearTimeout(tapTimer);
-      tapTimer = setTimeout(() => node.classList.remove('is-tapped'), 420);
-    });
-    const reset = () => { word.dx = 0; word.dy = 0; paintWaveWords(); };
-    node.addEventListener('dblclick', reset);
-    node.addEventListener('keydown', event => {
-      if (event.key === 'Escape') { reset(); return; }
-      const directions = { ArrowLeft: [-18, 0], ArrowRight: [18, 0], ArrowUp: [0, -18], ArrowDown: [0, 18] };
-      if (!directions[event.key]) return;
-      event.preventDefault(); word.dx += directions[event.key][0]; word.dy += directions[event.key][1];
-      clampWord(word); paintWaveWords();
-    });
-  });
+  const syncWave = () => window.XPWave?.sync();
 
   // A reversible scroll sequence, separate from the entrance animations below it.
   const openingSequence = $('[data-opening-scroll]'), opening = $('.opening', openingSequence);
@@ -242,8 +101,8 @@
   }
   new ResizeObserver(sizeOpening).observe(openingHeader);
   addEventListener('resize', sizeOpening, { passive: true });
-  reduced.addEventListener('change', () => { sizeOpening(); paintWaveWords(); });
-  document.fonts?.ready.then(resizeWave); sizeOpening();
+  reduced.addEventListener('change', () => { sizeOpening(); window.XPWave?.sync(); });
+  sizeOpening();
   window.XPScroll.register('opening-transition', context => {
     const bounds = openingSequence.getBoundingClientRect();
     const start = bounds.top + context.y - headerHeight - (context.width <= 700 ? 9 : 17);
@@ -253,7 +112,7 @@
     if (Math.abs(progress - lastIntro) < .0001 && heroHeight === lastHeroHeight) return;
     const width = bounds.width;
     return () => {
-      lastIntro = progress; introProgress = progress;
+      lastIntro = progress;
       if (heroHeight !== lastHeroHeight) {
         openingSequence.style.setProperty('--intro-height', heroHeight + 'px'); lastHeroHeight = heroHeight;
       }
@@ -268,7 +127,7 @@
       opening.style.setProperty('--motto-opacity', (1 - smooth((progress - .6) / .4) * .25).toFixed(4));
       opening.style.setProperty('--keyword-opacity', (1 - smooth((progress - .6) / .4) * .35).toFixed(4));
       $('.display-star', motto).style.setProperty('--star-angle', (progress * 300).toFixed(2) + 'deg');
-      paintWaveWords();
+      window.XPWave?.setProgress(progress);
     };
   });
 
@@ -299,6 +158,8 @@
     return () => {
       snapshots.forEach(({ wall, progress, stageWidth }) => {
         wall.progress = progress;
+        if (wall.rendered && !wall.visible && !wall.wasVisible) return;
+        wall.rendered = true; wall.wasVisible = wall.visible;
         const open = smooth(progress / .14) * (1 - smooth((progress - .89) / .11));
         wall.gallery.style.setProperty('--portal-y', (18 * (1 - open)).toFixed(3) + '%');
         wall.gallery.style.setProperty('--portal-x', (29 * (1 - open)).toFixed(3) + '%');
@@ -359,51 +220,7 @@
     element.addEventListener('pointerleave', () => { element.style.setProperty('--mag-x', '0px'); element.style.setProperty('--mag-y', '0px'); });
   });
 
-  // Entry reveal is translation and clipping; text always stays readable.
-  const reveals = $$('.editorial-statement>p,.editorial-statement>div,.project-index>article,.about-top>div,.education-row,.experience>article,.result-band>div');
-  const revealObserver = new IntersectionObserver(entries => {
-    entries.forEach(entry => {
-      if (!entry.isIntersecting) return;
-      animate(entry.target, [{ opacity: .15, transform: 'translateY(45px)' }, { opacity: 1, transform: 'none' }], 850);
-      revealObserver.unobserve(entry.target);
-    });
-  }, { threshold: .12 });
-  reveals.forEach(element => revealObserver.observe(element));
-
-  // Every chapter gets a restrained entrance and a small scroll drift. The wall keeps
-  // its own choreography; these transitions make the editorial sections feel alive too.
-  const scrollReveals = $$('.section-caption,.display-line--games,.editorial-statement,.project-index,.about-top,.resume-grid,.result-band,.contact-meta,.contact-title,.contact-email,.bit-strip').filter(element => !element.closest('.opening'));
-  const scrollRevealObserver = new IntersectionObserver(entries => {
-    entries.forEach(entry => {
-      if (!entry.isIntersecting) return;
-      entry.target.classList.add('is-scroll-visible');
-      animate(entry.target, [{ opacity: .12, transform: 'translateY(42px) scale(.99)' }, { opacity: 1, transform: 'none' }], 820);
-      scrollRevealObserver.unobserve(entry.target);
-    });
-  }, { threshold: .08, rootMargin: '0px 0px -8%' });
-  scrollReveals.forEach((element, index) => {
-    element.classList.add('scroll-reveal');
-    element.style.setProperty('--reveal-delay', Math.min(index % 4, 3) * 55 + 'ms');
-    scrollRevealObserver.observe(element);
-  });
-  const parallaxTargets = $$('.section-caption,.editorial-statement>p,.editorial-statement>div,.project-index>.future-record,.about-top h2,.result-band>div,.contact-meta');
-  parallaxTargets.forEach((element, index) => {
-    element.dataset.scrollParallax = 'true';
-    element.style.setProperty('--parallax-factor', (index % 2 ? -18 : 14) + 'px');
-  });
-  window.XPScroll.register('section-parallax', context => {
-    if (reduced.matches || context.width <= 700) return;
-    const measurements = parallaxTargets.map(element => {
-      const bounds = element.getBoundingClientRect();
-      const center = bounds.top + bounds.height * .5;
-      const factor = parseFloat(element.style.getPropertyValue('--parallax-factor')) || 12;
-      return { element, y: ((context.height * .5 - center) / Math.max(context.height, 1)) * factor };
-    });
-    return () => measurements.forEach(({ element, y }) => {
-      const value = Math.max(-18, Math.min(18, y));
-      element.style.setProperty('--parallax-y', value.toFixed(2) + 'px');
-    });
-  });
+  // Editorial scroll, hover depth and controls are coordinated by studio-depth.js.
 
   // Modal detail pages preserve a concise visual index on the main page.
   const dialogs = $$('dialog');
