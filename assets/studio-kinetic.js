@@ -13,14 +13,21 @@
     element.animate(frames, { duration, easing: 'cubic-bezier(.22,1,.36,1)' });
   };
 
-  // Preserve complete brand artwork. The contrast control changes the entire canvas.
-  const contrast = $('.contrast-toggle');
-  try { document.body.classList.toggle('contrasted', localStorage.getItem('xp-contrast') === 'paper'); } catch {}
-  const contrastState = () => contrast.setAttribute('aria-pressed', String(document.body.classList.contains('contrasted')));
-  contrastState();
+  // White is the new default, including visitors with a legacy yellow preference.
+  const contrast = $('.contrast-toggle'), themeKey = 'xp-theme-v2';
+  function setTheme(paper) {
+    document.body.classList.toggle('contrasted', paper);
+    document.body.classList.toggle('theme-yellow', !paper);
+    contrast.setAttribute('aria-pressed', String(paper));
+    contrast.title = paper ? '切换为暖黄色' : '切换为白色';
+    $('meta[name="theme-color"]').content = paper ? '#ffffff' : '#f4c95d';
+  }
+  let paper = true;
+  try { paper = localStorage.getItem(themeKey) !== 'yellow'; } catch {}
+  setTheme(paper);
   contrast.addEventListener('click', () => {
-    const paper = document.body.classList.toggle('contrasted'); contrastState();
-    try { localStorage.setItem('xp-contrast', paper ? 'paper' : 'red'); } catch {}
+    const white = !document.body.classList.contains('contrasted'); setTheme(white);
+    try { localStorage.setItem(themeKey, white ? 'white' : 'yellow'); } catch {}
   });
 
   // Rolling type: measured display faces turn into italic faces, glyph by glyph.
@@ -86,7 +93,7 @@
   // A reversible scroll sequence, separate from the entrance animations below it.
   const openingSequence = $('[data-opening-scroll]'), opening = $('.opening', openingSequence);
   const openingHeader = $('.kinetic-header'), motto = $('.display-line--motto', opening);
-  let introTravel = 1, headerHeight = 0, introBaseHeight = 1, introGrowth = 0, lastIntro = -1, lastHeroHeight = -1;
+  let introTravel = 1, headerHeight = 0, introBaseHeight = 1, introGrowth = 0, lastIntro = -1, lastOffset = -1;
   function sizeOpening() {
     headerHeight = openingHeader.offsetHeight;
     const compact = innerWidth <= 700, gutters = compact ? 17 : 33;
@@ -94,10 +101,11 @@
     const fullHeight = Math.max(introBaseHeight, innerHeight - (compact ? 9 : 17));
     introGrowth = fullHeight - introBaseHeight;
     introTravel = Math.round(Math.min(780, innerHeight * (compact ? .62 : .86)));
-    openingSequence.style.setProperty('--intro-height', introBaseHeight + 'px');
+    openingSequence.style.setProperty('--intro-height', fullHeight + 'px');
+    openingSequence.style.setProperty('--intro-offset', introGrowth + 'px');
     openingSequence.style.setProperty('--intro-full-height', fullHeight + 'px');
     openingSequence.style.setProperty('--intro-travel', introTravel + 'px');
-    lastIntro = -1; lastHeroHeight = -1; window.XPScroll.request();
+    lastIntro = -1; lastOffset = -1; window.XPScroll.request();
   }
   new ResizeObserver(sizeOpening).observe(openingHeader);
   addEventListener('resize', sizeOpening, { passive: true });
@@ -108,13 +116,13 @@
     const start = bounds.top + context.y - headerHeight - (context.width <= 700 ? 9 : 17);
     const distance = Math.max(0, context.y - start);
     const progress = reduced.matches ? 0 : clamp(distance / (introTravel + introGrowth));
-    const heroHeight = Math.round(introBaseHeight + (reduced.matches ? 0 : Math.min(distance, introGrowth)));
-    if (Math.abs(progress - lastIntro) < .0001 && heroHeight === lastHeroHeight) return;
+    const offset = reduced.matches ? 0 : Math.max(0, introGrowth - distance);
+    if (Math.abs(progress - lastIntro) < .0001 && offset === lastOffset) return;
     const width = bounds.width;
     return () => {
       lastIntro = progress;
-      if (heroHeight !== lastHeroHeight) {
-        openingSequence.style.setProperty('--intro-height', heroHeight + 'px'); lastHeroHeight = heroHeight;
+      if (offset !== lastOffset) {
+        openingSequence.style.setProperty('--intro-offset', offset.toFixed(2) + 'px'); lastOffset = offset;
       }
       opening.style.setProperty('--intro-progress', progress.toFixed(4));
       opening.style.setProperty('--wave-y', (-progress * 34).toFixed(2) + 'px');
@@ -125,7 +133,6 @@
       opening.style.setProperty('--motto-turn', (progress * .75).toFixed(3) + 'deg');
       opening.style.setProperty('--motto-scale', (1 - progress * .1).toFixed(4));
       opening.style.setProperty('--motto-opacity', (1 - smooth((progress - .6) / .4) * .25).toFixed(4));
-      opening.style.setProperty('--keyword-opacity', (1 - smooth((progress - .6) / .4) * .35).toFixed(4));
       $('.display-star', motto).style.setProperty('--star-angle', (progress * 300).toFixed(2) + 'deg');
       window.XPWave?.setProgress(progress);
     };
@@ -139,11 +146,15 @@
     window.XPScroll.request();
   }, { rootMargin: '150px' });
   walls.forEach(wall => visibility.observe(wall.section));
+  reduced.addEventListener('change', () => { walls.forEach(wall => { wall.rendered = false; }); window.XPScroll.request(); });
   function tileVideo(video, active) {
     if (!video) return;
-    if (!active || !motion() || navigator.connection?.saveData) { video.pause(); return; }
+    const play = active && motion() && !navigator.connection?.saveData;
+    if (video._tilePlaying === play) return;
+    video._tilePlaying = play;
+    if (!play) { video.pause(); return; }
     if (!video.getAttribute('src')) { video.src = video.dataset.tileVideo; video.load(); }
-    if (video.paused) video.play().catch(() => {});
+    if (video.paused) video.play().catch(() => { video._tilePlaying = false; });
   }
   $$('[data-tile-video]').forEach(video => {
     video.addEventListener('loadeddata', () => video.classList.add('is-ready'));
@@ -173,20 +184,29 @@
           const local = (progress - (.04 + index * .082)) / .29;
           const active = local > -.04 && local < 1.04 && wall.visible;
           const opacity = smooth(local / .12) * (1 - smooth((local - .84) / .16));
+          if (Math.abs(local - .5) < distance) { nearest = index; distance = Math.abs(local - .5); }
+          if (!reduced.matches && (!active || opacity < .005)) {
+            if (!card._wallHidden) {
+              card.style.opacity = '0'; card.inert = true; card.tabIndex = -1; card.style.pointerEvents = 'none';
+              card._wallHidden = true; card._wallEnabled = false; tileVideo($('video', card), false);
+            }
+            return;
+          }
+          card._wallHidden = false;
           const sign = index % 2 ? 1 : -1;
           const size = compact ? stageWidth * .79 : stageWidth * (index % 3 === 0 ? .47 : .41);
           const x = stageWidth * .5 - size * .5 + sign * stageWidth * (compact ? .075 : .215) + Math.sin(local * Math.PI) * sign * stageWidth * .045;
           const y = context.height * (1.10 - local * 1.9) - size * .14;
           const z = -130 + Math.sin(clamp(local) * Math.PI) * 210;
           card.style.setProperty('--card-width', size.toFixed(1) + 'px');
-          card.style.setProperty('--tx', x.toFixed(2) + 'px'); card.style.setProperty('--ty', y.toFixed(2) + 'px');
-          card.style.setProperty('--tz', z.toFixed(2) + 'px'); card.style.setProperty('--rz', (sign * (9 - local * 16)).toFixed(2) + 'deg');
-          card.style.setProperty('--card-scale', (.9 + Math.sin(clamp(local) * Math.PI) * .12).toFixed(4));
-          card.style.setProperty('--card-opacity', opacity.toFixed(4));
+          const transform = `translate3d(${x.toFixed(2)}px,${y.toFixed(2)}px,${z.toFixed(2)}px) rotate(${(sign * (9 - local * 16)).toFixed(2)}deg) scale(${(.9 + Math.sin(clamp(local) * Math.PI) * .12).toFixed(4)})`;
+          if (card._wallTransform !== transform) { card.style.transform = transform; card._wallTransform = transform; }
+          card.style.opacity = opacity.toFixed(4);
           const enabled = reduced.matches || (active && opacity > .25);
-          card.inert = !enabled; card.tabIndex = enabled ? 0 : -1; card.style.pointerEvents = enabled ? 'auto' : 'none';
+          if (card._wallEnabled !== enabled) {
+            card.inert = !enabled; card.tabIndex = enabled ? 0 : -1; card.style.pointerEvents = enabled ? 'auto' : 'none'; card._wallEnabled = enabled;
+          }
           tileVideo($('video', card), active && opacity > .2 && !reduced.matches);
-          if (Math.abs(local - .5) < distance) { nearest = index; distance = Math.abs(local - .5); }
         });
         wall.counter.textContent = String(nearest + 1).padStart(2, '0') + ' / 08';
       });
@@ -226,6 +246,7 @@
   const dialogs = $$('dialog');
   function refreshMedia() {
     document.body.classList.toggle('modal-open', Boolean(document.querySelector('dialog[open]')));
+    if (!motion()) $$('[data-tile-video]').forEach(video => tileVideo(video, false));
     syncWave(); scheduleConsole(); syncRecordings(); gallerySync.forEach(sync => sync()); window.XPScroll.request();
   }
   function openDialog(dialog) {

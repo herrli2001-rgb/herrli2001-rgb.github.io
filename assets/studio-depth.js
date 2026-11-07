@@ -57,6 +57,10 @@
   $$('.project-index>.future-record').forEach(node => scene(node, 'future', [...node.children]));
   const dividers = $$('.bit-strip').filter(node => !node.closest('.opening'));
   dividers.forEach(node => node.classList.add('fx-divider'));
+  const ribbonObserver = new IntersectionObserver(entries => {
+    entries.forEach(entry => entry.target.classList.toggle('is-ribbon-visible', entry.isIntersecting));
+  }, { threshold: 0 });
+  $$('.keyword-ribbon').forEach(node => ribbonObserver.observe(node));
 
   function fitStatements() {
     const paragraphs = $$('.editorial-statement>p');
@@ -72,13 +76,14 @@
     state.layers.forEach((layer, index) => {
       const factor = state.kind === 'record' ? 1 : index % 2 ? .62 : 1;
       const pointer = reduced.matches ? 0 : 1;
-      layer.style.setProperty('--depth-x', (state.x * 11 * factor * pointer).toFixed(2) + 'px');
-      layer.style.setProperty('--depth-y', ((state.scrollY + state.y * 10 * pointer) * factor).toFixed(2) + 'px');
-      layer.style.setProperty('--depth-z', state.z.toFixed(1) + 'px');
-      layer.style.setProperty('--depth-rx', (state.rx - state.y * (state.kind === 'record' ? 8 : 5) * pointer).toFixed(2) + 'deg');
-      layer.style.setProperty('--depth-ry', (state.x * (state.kind === 'record' ? 10 : 5) * pointer).toFixed(2) + 'deg');
-      layer.style.setProperty('--depth-scale', state.scale.toFixed(4));
-      layer.style.setProperty('--depth-opacity', state.opacity.toFixed(3));
+      const x = (state.x * 11 * factor * pointer).toFixed(2);
+      const y = ((state.scrollY + state.y * 10 * pointer) * factor).toFixed(2);
+      const rx = (state.rx - state.y * (state.kind === 'record' ? 8 : 5) * pointer).toFixed(2);
+      const ry = (state.x * (state.kind === 'record' ? 10 : 5) * pointer).toFixed(2);
+      const transform = `translate3d(${x}px,${y}px,${state.z.toFixed(1)}px) rotateX(${rx}deg) rotateY(${ry}deg) scale(${state.scale.toFixed(4)})`;
+      const opacity = state.opacity.toFixed(3);
+      if (layer._depthTransform !== transform) { layer.style.transform = transform; layer._depthTransform = transform; }
+      if (layer._depthOpacity !== opacity) { layer.style.opacity = opacity; layer._depthOpacity = opacity; }
     });
   }
   window.XPScroll.register('editorial-depth', context => {
@@ -91,7 +96,8 @@
     const strips = dividers.map(node => ({ node, p: clamp((context.height - node.getBoundingClientRect().top) / context.height) }));
     return () => {
       measurements.forEach(({ state, bounds, entry, exit, near }) => {
-        state.bounds = bounds; state.active = near; state.node.classList.toggle('is-motion-visible', near);
+        state.bounds = bounds;
+        if (state.active !== near) { state.active = near; state.node.classList.toggle('is-motion-visible', near); }
         if (!near && state.played) state.played = false;
         const amount = reduced.matches ? 0 : 1;
         const strength = state.kind === 'caption' || state.kind === 'future' ? .4 : 1;
@@ -101,7 +107,8 @@
         state.z = -(1 - entry) * 65 * amount * strength;
         state.scale = 1 - ((1 - entry) * .07 + exit * .018) * amount * strength;
         state.opacity = 1 - ((1 - entry) * .6 + exit * .14) * amount;
-        state.node.style.setProperty('--scene-reveal', state.reveal.toFixed(4));
+        const reveal = state.reveal.toFixed(4);
+        if (state.lastReveal !== reveal) { state.node.style.setProperty('--scene-reveal', reveal); state.lastReveal = reveal; }
         if (near || reduced.matches) paint(state);
       });
       strips.forEach(({ node, p }) => node.style.setProperty('--divider-progress', p.toFixed(4)));
@@ -188,7 +195,9 @@
       const bounds = state.bounds || state.node.getBoundingClientRect();
       const x = clamp((event.clientX - bounds.left) / bounds.width, 0, 1), y = clamp((event.clientY - bounds.top) / bounds.height, 0, 1);
       state.tx = (x - .5) * 2; state.ty = (y - .5) * 2;
-      state.node.style.setProperty('--light-x', (x * 100).toFixed(2) + '%'); state.node.style.setProperty('--light-y', (y * 100).toFixed(2) + '%');
+      if (!document.body.classList.contains('contrasted')) {
+        state.node.style.setProperty('--light-x', (x * 100).toFixed(2) + '%'); state.node.style.setProperty('--light-y', (y * 100).toFixed(2) + '%');
+      }
       state.node.classList.add('is-pointer-over'); wakePointer(state); updatePreview(state, event);
     }, { passive: true });
     state.node.addEventListener('pointerleave', () => {
