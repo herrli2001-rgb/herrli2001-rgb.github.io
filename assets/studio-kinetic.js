@@ -138,9 +138,10 @@
     };
   });
 
-  // Sticky portals and flying, clickable real project screens.
+  // Keep each game screen and its introduction together as the wall scrolls.
   const walls = $$('[data-wall]').map(section => ({ section, stage: $('.wall-stage', section), gallery: $('.wall-gallery', section),
-    cards: $$('[data-wall-card]', section), counter: $('[data-wall-count]', section), visible: false, progress: 0 }));
+    entries: $$('[data-game-entry]', section).map(element => ({ element, video: $('video', element) })),
+    counter: $('[data-wall-count]', section), visible: false }));
   const visibility = new IntersectionObserver(entries => {
     entries.forEach(entry => { const wall = walls.find(item => item.section === entry.target); wall.visible = entry.isIntersecting; });
     window.XPScroll.request();
@@ -163,14 +164,12 @@
     video.addEventListener('error', () => video.classList.remove('is-ready'));
   });
   window.XPScroll.register('kinetic-project-walls', context => {
-    const compact = context.width <= 700;
     const snapshots = walls.map(wall => {
       const bounds = wall.section.getBoundingClientRect();
       return { wall, stageWidth: wall.stage.clientWidth, progress: clamp(-bounds.top / Math.max(1, bounds.height - context.height)) };
     });
     return () => {
       snapshots.forEach(({ wall, progress, stageWidth }) => {
-        wall.progress = progress;
         if (wall.rendered && !wall.visible && !wall.wasVisible) return;
         wall.rendered = true; wall.wasVisible = wall.visible;
         const open = smooth(progress / .14) * (1 - smooth((progress - .89) / .11));
@@ -181,36 +180,27 @@
         wall.stage.style.setProperty('--wall-open', open.toFixed(3));
         wall.stage.style.setProperty('--ghost-x', ((progress - .5) * stageWidth * .72).toFixed(2) + 'px');
         wall.stage.style.setProperty('--grid-scale', (.8 + open * .2).toFixed(3));
-        let nearest = 0, distance = 99;
-        wall.cards.forEach((card, index) => {
-          const local = (progress - (.04 + index * .082)) / .29;
-          const active = local > -.04 && local < 1.04 && wall.visible;
-          const opacity = smooth(local / .12) * (1 - smooth((local - .84) / .16));
-          if (Math.abs(local - .5) < distance) { nearest = index; distance = Math.abs(local - .5); }
-          if (!reduced.matches && (!active || opacity < .005)) {
-            if (!card._wallHidden) {
-              card.style.opacity = '0'; card.inert = true; card.tabIndex = -1; card.style.pointerEvents = 'none';
-              card._wallHidden = true; card._wallEnabled = false; tileVideo($('video', card), false);
-            }
-            return;
-          }
-          card._wallHidden = false;
-          const sign = index % 2 ? 1 : -1;
-          const size = compact ? stageWidth * .79 : stageWidth * (index % 3 === 0 ? .47 : .41);
-          const x = stageWidth * .5 - size * .5 + sign * stageWidth * (compact ? .075 : .215) + Math.sin(local * Math.PI) * sign * stageWidth * .045;
-          const y = context.height * (1.10 - local * 1.9) - size * .14;
-          const z = -130 + Math.sin(clamp(local) * Math.PI) * 210;
-          card.style.setProperty('--card-width', size.toFixed(1) + 'px');
-          const transform = `translate3d(${x.toFixed(2)}px,${y.toFixed(2)}px,${z.toFixed(2)}px) rotate(${(sign * (9 - local * 16)).toFixed(2)}deg) scale(${(.9 + Math.sin(clamp(local) * Math.PI) * .12).toFixed(4)})`;
-          if (card._wallTransform !== transform) { card.style.transform = transform; card._wallTransform = transform; }
-          card.style.opacity = opacity.toFixed(4);
-          const enabled = reduced.matches || (active && opacity > .25);
-          if (card._wallEnabled !== enabled) {
-            card.inert = !enabled; card.tabIndex = enabled ? 0 : -1; card.style.pointerEvents = enabled ? 'auto' : 'none'; card._wallEnabled = enabled;
-          }
-          tileVideo($('video', card), active && opacity > .2 && !reduced.matches);
+        const position = clamp((progress - .12) / .76) * (wall.entries.length - 1);
+        const nearest = Math.round(position);
+        const still = reduced.matches;
+        wall.entries.forEach(({ element, video }, index) => {
+          const offset = index - position;
+          const drift = smooth((Math.abs(offset) - .22) / .78);
+          const opacity = wall.visible ? open * (1 - drift) : 0;
+          const isCurrent = index === nearest;
+          const interactive = still || (isCurrent && opacity > .35);
+          if (element.inert === interactive) element.inert = !interactive;
+          const alpha = still ? '' : opacity.toFixed(3);
+          if (element.style.opacity !== alpha) element.style.opacity = alpha;
+          tileVideo(video, !still && interactive);
+          if (still || opacity < .005) return;
+          const y = Math.sign(offset) * drift * context.height * .96 + (1 - open) * 35;
+          const z = -100 * drift;
+          const transform = `translate3d(-50%,calc(-50% + ${y.toFixed(1)}px),${z.toFixed(1)}px)`;
+          if (element.style.transform !== transform) element.style.transform = transform;
+          element.style.zIndex = isCurrent ? '1' : '0';
         });
-        const count = String(nearest + 1).padStart(2, '0') + ' / ' + String(wall.cards.length).padStart(2, '0');
+        const count = String(nearest + 1).padStart(2, '0') + ' / ' + String(wall.entries.length).padStart(2, '0');
         if (wall.counter.textContent !== count) wall.counter.textContent = count;
       });
     };
