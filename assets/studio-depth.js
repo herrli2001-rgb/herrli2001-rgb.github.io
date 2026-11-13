@@ -175,7 +175,13 @@
   const preview = document.createElement('figure'); preview.className = 'record-preview'; preview.setAttribute('aria-hidden', 'true');
   preview.innerHTML = '<img alt="" width="640" height="400"><figcaption><span></span><span>REAL INTERFACE</span></figcaption>'; document.body.append(preview);
   addEventListener('scroll', () => preview.classList.remove('is-open'), { passive: true });
-  const previewAssets = { bot: ['assets/products/bot-overview.jpg', 'XP BOT'], studio: ['assets/studio/xp-home.png', 'XP STUDIO'], dream: ['assets/portfolio/dream-campus.webp', 'DREAM SCHOOL'], sakura: ['assets/portfolio/sakura-street.webp', '樱花小镇'] };
+  const previewAssets = {
+    bot: ['assets/products/xp-bot-workspace.webp', 'XP BOT'],
+    studio: ['assets/studio/xp-home.png', 'XP STUDIO'],
+    director: ['assets/products/xp-director-storyboard.webp', 'XP DIRECTOR'],
+    dream: ['assets/portfolio/dream-campus.webp', 'DREAM SCHOOL'],
+    sakura: ['assets/portfolio/sakura-street.webp', '樱花小镇']
+  };
   function updatePreview(state, event) {
     if (state.kind !== 'record') return;
     const title = $('.record-title', state.node), key = title.dataset.project || title.dataset.case, asset = previewAssets[key];

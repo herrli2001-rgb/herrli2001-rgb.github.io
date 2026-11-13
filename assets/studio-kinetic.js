@@ -149,12 +149,14 @@
   reduced.addEventListener('change', () => { walls.forEach(wall => { wall.rendered = false; }); window.XPScroll.request(); });
   function tileVideo(video, active) {
     if (!video) return;
-    const play = active && motion() && !navigator.connection?.saveData;
+    const play = active && !video.error && motion() && !navigator.connection?.saveData;
     if (video._tilePlaying === play) return;
     video._tilePlaying = play;
     if (!play) { video.pause(); return; }
     if (!video.getAttribute('src')) { video.src = video.dataset.tileVideo; video.load(); }
-    if (video.paused) video.play().catch(() => { video._tilePlaying = false; });
+    if (video.paused) video.play().catch(error => {
+      if (error.name === 'AbortError' && video.paused) video._tilePlaying = false;
+    });
   }
   $$('[data-tile-video]').forEach(video => {
     video.addEventListener('loadeddata', () => video.classList.add('is-ready'));
@@ -208,10 +210,79 @@
           }
           tileVideo($('video', card), active && opacity > .2 && !reduced.matches);
         });
-        wall.counter.textContent = String(nearest + 1).padStart(2, '0') + ' / 08';
+        const count = String(nearest + 1).padStart(2, '0') + ' / ' + String(wall.cards.length).padStart(2, '0');
+        if (wall.counter.textContent !== count) wall.counter.textContent = count;
       });
     };
   });
+
+  // Product evidence shares the scroll scheduler with the game wall.
+  const productRows = $$('[data-product-wall-row]').map(row => ({
+    row,
+    card: $('.product-wall-card', row),
+    metric: $('.wall-metric', row),
+    video: $('[data-tile-video]', row),
+    transforms: ['', ''],
+    opacities: ['', '']
+  }));
+  function paintProductLayer(state, index, transform, opacity) {
+    const element = index === 0 ? state.card : state.metric;
+    if (state.transforms[index] !== transform) {
+      element.style.transform = transform;
+      state.transforms[index] = transform;
+    }
+    if (state.opacities[index] !== opacity) {
+      element.style.opacity = opacity;
+      state.opacities[index] = opacity;
+    }
+  }
+  window.XPScroll.register('product-wall-evidence', context => {
+    const still = reduced.matches;
+    const compact = context.width <= 760;
+    const balanced = document.documentElement.classList.contains('effects-balanced');
+    const distance = Math.min(context.height * .55, 380);
+    const fadeDistance = Math.min(context.height * .29, 220);
+    let playing = null;
+    let bestDistance = Infinity;
+    const visibleRows = [];
+    for (const state of productRows) {
+      const bounds = state.row.getBoundingClientRect();
+      if (bounds.bottom < -120 || bounds.top > context.height + 120) continue;
+      const entry = context.height - bounds.top;
+      const cardProgress = smooth(entry / distance);
+      const metricProgress = smooth((entry - (compact ? 16 : 46)) / distance);
+      const exit = 1 - smooth(bounds.bottom / fadeDistance);
+      visibleRows.push({ state, cardProgress, metricProgress, exit });
+      if (!state.video || still || cardProgress < .85 || exit > .12) continue;
+      const centerDistance = Math.abs(bounds.top + bounds.height / 2 - context.height / 2);
+      if (centerDistance < bestDistance) {
+        bestDistance = centerDistance;
+        playing = state.video;
+      }
+    }
+    return () => {
+      for (const { state, cardProgress, metricProgress, exit } of visibleRows) {
+        if (still) {
+          paintProductLayer(state, 0, '', '');
+          paintProductLayer(state, 1, '', '');
+          continue;
+        }
+        const cardDepth = 1 - cardProgress;
+        const metricDepth = 1 - metricProgress;
+        const cardY = cardDepth * 44 - exit * 20;
+        const metricY = metricDepth * 56 - exit * 13;
+        const cardZ = compact || balanced ? 0 : -100 * cardDepth;
+        const metricZ = compact || balanced ? 0 : -160 * metricDepth;
+        const turn = compact || balanced ? 0 : 8 * cardDepth - 3 * exit;
+        const cardTransform = `translate3d(0,${cardY.toFixed(1)}px,${cardZ.toFixed(1)}px) rotateY(${turn.toFixed(2)}deg)`;
+        const metricTransform = `translate3d(0,${metricY.toFixed(1)}px,${metricZ.toFixed(1)}px) scale(${(1 - .045 * metricDepth).toFixed(4)})`;
+        paintProductLayer(state, 0, cardTransform, (.32 + .68 * cardProgress * (1 - .45 * exit)).toFixed(3));
+        paintProductLayer(state, 1, metricTransform, (.18 + .82 * metricProgress * (1 - .54 * exit)).toFixed(3));
+      }
+      for (const state of productRows) tileVideo(state.video, state.video === playing);
+    };
+  });
+
   $$('[data-wall-card]').forEach(card => {
     let pointerFrame = 0;
     card.addEventListener('pointermove', event => {
@@ -259,10 +330,22 @@
     sakura: ['樱花小镇 · 完整宣传片', 'assets/portfolio/sakura-pv.mp4', 'assets/portfolio/sakura-poster.webp']
   };
   const film = $('#film-dialog'), filmVideo = $('video', film);
+  const productDialogs = new Map([
+    ['bot', $('#bot-product-dialog')],
+    ['studio', $('#studio-product-dialog')],
+    ['director', $('#director-product-dialog')]
+  ]);
   let draggedGallery = false;
   document.addEventListener('click', event => {
     const button = event.target.closest('button,a'); if (!button) return;
-    if (button.matches('[data-project]')) openDialog($('#' + (button.dataset.project === 'bot' ? 'bot' : 'studio') + '-product-dialog'));
+    if (button.matches('[data-project]')) {
+      const dialog = productDialogs.get(button.dataset.project);
+      if (button.tagName === 'A') {
+        if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+      }
+      openDialog(dialog);
+    }
     else if (button.matches('[data-case]')) openDialog($('#' + button.dataset.case + '-case'));
     else if (button.matches('[data-film]')) {
       const data = films[button.dataset.film]; if (!data) return;
@@ -401,12 +484,12 @@
   document.addEventListener('visibilitychange', refreshMedia);
   reduced.addEventListener('change', refreshMedia);
   addEventListener('xp-qualitychange', () => { syncWave(); window.XPScroll.request(); });
-  addEventListener('hashchange', () => {
-    if (location.hash === '#xp-bot') openDialog($('#bot-product-dialog'));
-    if (location.hash === '#xp-studio') openDialog($('#studio-product-dialog'));
-  });
-  if (location.hash === '#xp-bot') openDialog($('#bot-product-dialog'));
-  if (location.hash === '#xp-studio') openDialog($('#studio-product-dialog'));
+  function openLinkedProduct() {
+    const key = location.hash.startsWith('#xp-') ? location.hash.slice(4) : '';
+    openDialog(productDialogs.get(key));
+  }
+  addEventListener('hashchange', openLinkedProduct);
+  openLinkedProduct();
   window.XPScrollCoverage = () => walls.map(wall => ({ section: wall.section.dataset.wall, progress: +wall.progress.toFixed(3), visible: wall.visible }));
   refreshMedia();
 })();
